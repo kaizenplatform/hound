@@ -18,7 +18,6 @@ feature 'User authentication' do
 
     sign_in_as(user)
 
-    user = User.where(github_username: github_username).first
     expect(page).to have_content(github_username)
   end
 
