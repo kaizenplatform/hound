@@ -10,7 +10,7 @@
     = javascript_include_tag 'application'
     = csrf_meta_tags
   %body
-    - flash.each do |key, value|
+    - flash.to_hash.slice("notice", "error").each do |key, value|
       .flash{ class: key }
         = value
 
