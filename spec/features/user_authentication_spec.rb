@@ -1,7 +1,7 @@
 require 'spec_helper'
 
 feature 'User authentication' do
-  scenario "when user already exists, signs in" do
+  scenario "existing user signs in" do
     user = create(:user)
     stub_repo_requests(AuthenticationHelper::GITHUB_TOKEN)
 
@@ -11,7 +11,7 @@ feature 'User authentication' do
     expect(analytics).to have_tracked("Signed In").for_user(user)
   end
 
-  scenario "when user doesn't exist, signs up" do
+  scenario "new user signs in" do
     github_username = "croaky"
     user = build(:user, github_username: github_username)
     stub_repo_requests(AuthenticationHelper::GITHUB_TOKEN)
