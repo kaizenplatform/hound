@@ -4,7 +4,8 @@ require 'resque-sentry'
 require 'resque/failure/redis'
 
 Resque::Server.use(Rack::Auth::Basic) do |user, password|
-  password == ENV['RESQUE_ADMIN_PASSWORD']
+  return false if ENV['BASIC_AUTH_USER'].blank? || ENV['BASIC_AUTH_PASSWORD'].blank?
+  [user, password] == [ENV['BASIC_AUTH_USER'], ENV['BASIC_AUTH_PASSWORD']]
 end
 
 Resque::Failure::Sentry.logger = 'resque'

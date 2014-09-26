@@ -5,8 +5,15 @@ class ApplicationController < ActionController::Base
   before_action :authenticate
   after_action  :set_csrf_cookie_for_ng
   helper_method :current_user, :signed_in?
+  before_action :basic_auth
 
   private
+
+  def basic_auth
+    authenticate_or_request_with_http_basic do |user,pass|
+      [user, pass] == [ENV['BASIC_AUTH_USER'], ENV['BASIC_AUTH_PASSWORD']]
+    end
+  end
 
   def force_https
     if ENV['ENABLE_HTTPS'] == 'yes'

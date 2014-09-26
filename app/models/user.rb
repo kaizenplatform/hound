@@ -12,7 +12,7 @@ class User < ActiveRecord::Base
     to: :payment_gateway_customer
   )
 
-  validates :github_username, presence: true
+  validates :github_username, presence: true, inclusion: { in: [ENV['ALLOWED_USERS'].split(',')] }
 
   before_create :generate_remember_token
 
