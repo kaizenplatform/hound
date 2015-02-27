@@ -1,5 +1,5 @@
 class PullRequest
-  pattr_initialize :payload, :github_token
+  pattr_initialize :payload
 
   def comments
     @comments ||= api.pull_request_comments(full_repo_name, number)
@@ -11,14 +11,18 @@ class PullRequest
       map { |file| build_commit_file(file) }
   end
 
-  def add_comment(violation)
-    api.add_comment(
+  def comment_on_violation(violation)
+    api.add_pull_request_comment(
       pull_request_number: number,
       comment: violation.messages.join("<br>"),
       commit: head_commit,
       filename: violation.filename,
       patch_position: violation.patch_position
     )
+  end
+
+  def repository_owner_name
+    payload.repository_owner_name
   end
 
   def opened?
@@ -40,11 +44,11 @@ class PullRequest
   end
 
   def api
-    @api ||= GithubApi.new(github_token)
+    @api ||= GithubApi.new(ENV["HOUND_GITHUB_TOKEN"])
   end
 
   def number
-    payload.number
+    payload.pull_request_number
   end
 
   def full_repo_name

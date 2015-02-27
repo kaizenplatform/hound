@@ -1,4 +1,6 @@
 class RepoSubscriber
+  pattr_initialize :repo, :user, :card_token
+
   def self.subscribe(repo, user, card_token)
     new(repo, user, card_token).subscribe
   end
@@ -7,17 +9,17 @@ class RepoSubscriber
     new(repo, user, nil).unsubscribe
   end
 
-  pattr_initialize :repo, :user, :card_token
-
   def subscribe
-    customer = if user.stripe_customer_id
-      payment_gateway_customer.card = card_token
-      payment_gateway_customer.save
+    customer = if user.stripe_customer_id.present?
+      payment_gateway_customer
     else
       create_stripe_customer
     end
 
-    stripe_subscription = customer.subscriptions.create(plan: repo.plan)
+    stripe_subscription = customer.subscriptions.create(
+      plan: repo.plan_type,
+      metadata: { repo_id: repo.id }
+    )
 
     repo.create_subscription!(
       user_id: user.id,

@@ -1,6 +1,7 @@
-require 'fast_spec_helper'
+require "fast_spec_helper"
 require "attr_extras"
-require 'app/models/payload'
+require "app/models/payload"
+require "lib/github_api"
 
 describe Payload do
   describe '#changed_files' do
@@ -49,6 +50,118 @@ describe Payload do
       payload = Payload.new(data)
 
       expect(payload.data).to eq data
+    end
+  end
+
+  describe "#pull_request?" do
+    context "when payload for push of a commit" do
+      it "returns false" do
+        push_event = File.read("spec/support/fixtures/push_event.json")
+        payload = Payload.new(push_event)
+
+        expect(payload).not_to be_pull_request
+      end
+    end
+
+    context "when payload for pull request" do
+      it "returns true" do
+        push_event = File.read(
+          "spec/support/fixtures/pull_request_opened_event.json"
+        )
+        payload = Payload.new(push_event)
+
+        expect(payload).to be_pull_request
+      end
+    end
+  end
+
+  describe "#pull_request_number" do
+    it "returns the pull request number" do
+      data = { "number" => 2 }
+      payload = Payload.new(data)
+
+      expect(payload.pull_request_number).to eq 2
+    end
+  end
+
+  describe "#repository_owner_name" do
+    it "returns the owner of the repo's name" do
+      data = {
+        "repository" => {
+          "owner" => {
+            "login" => "thoughtbot"
+          }
+        }
+      }
+
+      payload = Payload.new(data)
+
+      expect(payload.repository_owner_name).to eq "thoughtbot"
+    end
+  end
+
+  describe "#repository_owner_id" do
+    it "returns the owner of the repo's ID" do
+      data = {
+        "repository" => {
+          "owner" => {
+            "id" => 1
+          }
+        }
+      }
+
+      payload = Payload.new(data)
+
+      expect(payload.repository_owner_id).to eq 1
+    end
+  end
+
+  describe "#repository_owner_is_organization?" do
+    context "when the repository owner is a user" do
+      it "returns false" do
+        payload_json = {
+          "repository" => {
+            "owner" => {
+              "id" => 1,
+              "type" => "User"
+            }
+          }
+        }
+        payload = Payload.new(payload_json)
+
+        expect(payload.repository_owner_is_organization?).to be false
+      end
+    end
+
+    context "when the repository owner is an organization" do
+      it "returns true" do
+        payload_json = {
+          "repository" => {
+            "owner" => {
+              "id" => 1,
+              "type" => "Organization"
+            }
+          }
+        }
+        payload = Payload.new(payload_json)
+
+        expect(payload.repository_owner_is_organization?).to be true
+      end
+    end
+  end
+
+  describe "#build_data" do
+    it "returns a subset of original data" do
+      fixture_file = "spec/support/fixtures/pull_request_opened_event.json"
+      payload_json = File.read(fixture_file)
+      payload = Payload.new(payload_json)
+
+      expect(payload.build_data).to include(
+        "number",
+        "action",
+        "pull_request" => hash_including("changed_files", "head"),
+        "repository" => hash_including("id", "full_name", "owner"),
+      )
     end
   end
 end

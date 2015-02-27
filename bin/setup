@@ -20,3 +20,19 @@ heroku join --app hound-production
 if [ ! -f .env ]; then
   cp .sample.env .env
 fi
+
+# Set a default port for Foreman to run the server
+if ! grep -qs 'port' .foreman; then
+  printf 'port: 5000\n' >> .foreman
+fi
+
+# Stripe credentials
+if ! grep -qs 'STRIPE' .env; then
+  heroku config --app hound-staging | grep "STRIPE" > .env
+  sed -i '' 's/\:/=/' .env
+  sed -i '' 's/ //g' .env
+fi
+
+# GitHub
+printf 'Generate a token at https://github.com/settings/tokens/new\n'
+printf 'Select user:email and repo scopes\n'

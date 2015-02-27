@@ -23,23 +23,29 @@ class StyleChecker
 
   def files_to_check
     pull_request.pull_request_files.reject(&:removed?).select do |file|
-      style_guide(file.filename).enabled?
+      file_style_guide = style_guide(file.filename)
+      file_style_guide.enabled? && file_style_guide.file_included?(file)
     end
   end
 
   def style_guide(filename)
     style_guide_class = style_guide_class(filename)
-    style_guides[style_guide_class] ||= style_guide_class.new(config)
+    style_guides[style_guide_class] ||= style_guide_class.new(
+      config,
+      pull_request.repository_owner_name
+    )
   end
 
   def style_guide_class(filename)
     case filename
-    when /.*\.rb$/
+    when /.+\.rb\z/
       StyleGuide::Ruby
-    when /.*\.coffee.?/
+    when /.+\.coffee(\.js)?\z/
       StyleGuide::CoffeeScript
-    when /.*\.js.?/
+    when /.+\.js\z/
       StyleGuide::JavaScript
+    when /.+\.scss\z/
+      StyleGuide::Scss
     else
       StyleGuide::Unsupported
     end

@@ -1,14 +1,22 @@
 # Determine Ruby style guide violations per-line.
 module StyleGuide
   class Ruby < Base
-    DEFAULT_CONFIG_FILE = File.join(CONFIG_DIR, "ruby.yml")
+    DEFAULT_CONFIG_FILENAME = "ruby.yml"
 
     def violations_in_file(file)
       if config.file_to_exclude?(file.filename)
         []
       else
         team.inspect_file(parsed_source(file)).map do |violation|
-          Violation.new(file, violation.line, violation.message)
+          line = file.line_at(violation.line)
+
+          Violation.new(
+            filename: file.filename,
+            patch_position: line.patch_position,
+            line: line,
+            line_number: violation.line,
+            messages: [violation.message]
+          )
         end
       end
     end
@@ -20,7 +28,7 @@ module StyleGuide
     end
 
     def parsed_source(file)
-      RuboCop::ProcessedSource.new(file.content)
+      RuboCop::ProcessedSource.new(file.content, file.filename)
     end
 
     def config
@@ -34,7 +42,7 @@ module StyleGuide
     end
 
     def default_config
-      RuboCop::ConfigLoader.configuration_from_file(DEFAULT_CONFIG_FILE)
+      RuboCop::ConfigLoader.configuration_from_file(default_config_file)
     end
 
     def custom_config
@@ -46,10 +54,20 @@ module StyleGuide
       RuboCop::Config.new
     end
 
+    # This is deprecated in favor of RuboCop's DisplayCopNames option.
+    # Let's track how often we see this and remove it if we see fit.
     def rubocop_options
-      if config["ShowCopNames"]
+      if config.delete("ShowCopNames")
+        Analytics.new(repository_owner_name).track_show_cop_names
         { debug: true }
       end
+    end
+
+    def default_config_file
+      DefaultConfigFile.new(
+        DEFAULT_CONFIG_FILENAME,
+        repository_owner_name
+      ).path
     end
   end
 end

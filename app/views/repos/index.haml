@@ -1,0 +1,6 @@
+- content_for :page_title, "Your Repos"
+
+= render 'settings'
+
+.repo-listing{ 'repo-list' => '' }
+= render 'preload_template', template: 'repo_list'

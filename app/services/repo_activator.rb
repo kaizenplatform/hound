@@ -1,43 +1,88 @@
 class RepoActivator
-  def activate(repo, github_token)
-    change_repository_state_quietly do
-      github = GithubApi.new(github_token)
-      add_hound_to_repo(github, repo) && create_web_hook(github, repo)
-    end
+  attr_reader :errors
+
+  def initialize(github_token:, repo:)
+    @github_token = github_token
+    @repo = repo
+    @errors = []
   end
 
-  def deactivate(repo, github_token)
-    change_repository_state_quietly do
-      github = GithubApi.new(github_token)
-      github.remove_hook(repo.full_github_name, repo.hook_id)
-      repo.deactivate
-    end
+  def activate
+    activate_repo.tap { enqueue_org_invitation }
+  end
+
+  def deactivate
+    deactivate_repo
   end
 
   private
 
+  attr_reader :github_token, :repo
+
+  def activate_repo
+    change_repository_state_quietly do
+      add_hound_to_repo && create_webhook && repo.activate
+    end
+  end
+
+  def deactivate_repo
+    change_repository_state_quietly do
+      remove_hound_from_repo && delete_webhook && repo.deactivate
+    end
+  end
+
   def change_repository_state_quietly
     yield
   rescue Octokit::Error => error
+    add_error(error)
     Raven.capture_exception(error)
     false
   end
 
-  def create_web_hook(github, repo)
+  def remove_hound_from_repo
+    RemoveHoundFromRepo.run(repo.full_github_name, github)
+  end
+
+  def add_hound_to_repo
+    AddHoundToRepo.run(repo.full_github_name, github)
+  end
+
+  def github
+    @github ||= GithubApi.new(github_token)
+  end
+
+  def create_webhook
     github.create_hook(repo.full_github_name, builds_url) do |hook|
-      repo.update_attributes(hook_id: hook.id, active: true)
+      repo.update(hook_id: hook.id)
     end
   end
 
-  def add_hound_to_repo(github, repo)
-    github.add_user_to_repo(
-      ENV['HOUND_GITHUB_USERNAME'],
-      repo.full_github_name
-    )
+  def enqueue_org_invitation
+    if repo.in_organization?
+      AcceptOrgInvitationsJob.perform_later
+    end
+  end
+
+  def delete_webhook
+    github.remove_hook(repo.full_github_name, repo.hook_id) do
+      repo.update(hook_id: nil)
+    end
   end
 
   def builds_url
-    protocol = ENV['ENABLE_HTTPS'] == 'yes' ? 'https' : 'http'
-    URI.join("#{protocol}://#{ENV['HOST']}", 'builds').to_s
+    URI.join("#{protocol}://#{ENV["HOST"]}", "builds").to_s
+  end
+
+  def protocol
+    if ENV.fetch("ENABLE_HTTPS") == "yes"
+      "https"
+    else
+      "http"
+    end
+  end
+
+  def add_error(error)
+    error_message = ErrorMessageTranslation.from_error_response(error)
+    errors.push(error_message).compact!
   end
 end

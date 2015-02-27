@@ -3,53 +3,79 @@ require "spec_helper"
 describe ActivationsController, "#create" do
   context "when activation succeeds" do
     it "returns successful response" do
+      token = "sometoken"
       membership = create(:membership)
       repo = membership.repo
-      activator = double(:repo_activator, activate: true)
+      activator = double("RepoActivator", activate: true, errors: [])
       allow(RepoActivator).to receive(:new).and_return(activator)
-      stub_sign_in(membership.user)
+      stub_sign_in(membership.user, token)
 
       post :create, repo_id: repo.id, format: :json
 
       expect(response.code).to eq "201"
       expect(response.body).to eq RepoSerializer.new(repo).to_json
-      expect(activator).to have_received(:activate).
-        with(repo, AuthenticationHelper::GITHUB_TOKEN)
-      expect(analytics).to have_tracked("Activated Public Repo").
+      expect(activator).to have_received(:activate)
+      expect(RepoActivator).to have_received(:new).
+        with(repo: repo, github_token: token)
+      expect(analytics).to have_tracked("Repo Activated").
         for_user(membership.user).
-        with(properties: { name: repo.full_github_name })
+        with(
+          properties: {
+            name: repo.full_github_name,
+            private: false,
+            revenue: 0,
+          }
+        )
     end
   end
 
   context "when activation fails" do
-    it "returns error response" do
-      membership = create(:membership)
-      repo = membership.repo
-      activator = double(:repo_activator, activate: false).as_null_object
-      allow(RepoActivator).to receive(:new).and_return(activator)
-      stub_sign_in(membership.user)
+    context "due to 403 Forbidden from GitHub" do
+      it "returns error response" do
+        token = "sometoken"
+        membership = create(:membership)
+        repo = membership.repo
+        error_message = "You must be an admin to add a team membership"
+        activator = double(
+          "RepoActivator",
+          activate: false,
+          errors: [error_message]
+        )
+        allow(RepoActivator).to receive(:new).and_return(activator)
+        stub_sign_in(membership.user, token)
 
-      post :create, repo_id: repo.id, format: :json
+        post :create, repo_id: repo.id, format: :json
 
-      expect(response.code).to eq "502"
-      expect(activator).to have_received(:activate).
-        with(repo, AuthenticationHelper::GITHUB_TOKEN)
+        response_body = JSON.parse(response.body)
+        expect(response.code).to eq "502"
+        expect(response_body["errors"]).to match_array(error_message)
+        expect(activator).to have_received(:activate)
+        expect(RepoActivator).to have_received(:new).
+          with(repo: repo, github_token: token)
+      end
     end
 
-    it "notifies Sentry" do
+    it "tracks failed activation" do
       membership = create(:membership)
       repo = membership.repo
-      activator = double(:repo_activator, activate: false).as_null_object
+      activator = double(
+        "RepoActivator",
+        activate: false,
+        errors: []
+      )
       allow(RepoActivator).to receive(:new).and_return(activator)
-      allow(Raven).to receive(:capture_exception)
       stub_sign_in(membership.user)
 
       post :create, repo_id: repo.id, format: :json
 
-      expect(Raven).to have_received(:capture_exception).with(
-        ActivationsController::FailedToActivate.new("Failed to activate repo"),
-        extra: { user_id: membership.user.id, repo_id: repo.id.to_s }
-      )
+      expect(analytics).to have_tracked("Repo Activation Failed").
+        for_user(membership.user).
+        with(
+          properties: {
+            name: repo.full_github_name,
+            private: false
+          }
+        )
     end
   end
 
@@ -58,12 +84,12 @@ describe ActivationsController, "#create" do
       repo = create(:repo, private: true)
       user = create(:user)
       user.repos << repo
-      activator = double(:repo_activator, activate: false)
+      activator = double("RepoActivator", activate: false)
       allow(RepoActivator).to receive(:new).and_return(activator)
       stub_sign_in(user)
 
       expect { post :create, repo_id: repo.id, format: :json }.to raise_error(
-        ActivationsController::CannotActivatePrivateRepo
+        ActivationsController::CannotActivatePaidRepo
       )
       expect(activator).not_to have_received(:activate)
     end

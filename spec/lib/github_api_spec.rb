@@ -1,128 +1,15 @@
-require 'fast_spec_helper'
+require "fast_spec_helper"
 require "attr_extras"
-require 'lib/github_api'
-require 'json'
-require 'app/models/github_user'
+require "lib/github_api"
+require "json"
+require "app/models/github_user"
 
 describe GithubApi do
-  describe '#email_address' do
-    it 'returns primary GitHub email address' do
-      token = 'token'
+  describe "#repos" do
+    it "fetches all repos from Github" do
+      token = "something"
       api = GithubApi.new(token)
-      stub_user_emails_request(token)
-
-      email_address = api.email_address
-
-      expect(email_address).to eq 'Primary@Example.com'
-    end
-  end
-
-  describe '#add_user_to_repo' do
-    let(:token) { "abc123" }
-    let(:username) { "testuser" }
-    let(:organization) { "testing" }
-    let(:repo_name) { "#{organization}/repo" }
-    let(:team_id) { 4567 }
-    let(:api) { GithubApi.new(token) }
-
-    context 'when repo is part of an organization' do
-      context 'when repo is part of a team' do
-        context 'when request succeeds' do
-          it 'adds Hound user to first repo team with admin access and return true' do
-            stub_common_requests
-            add_user_request =
-              stub_add_user_to_team_request(username, team_id, token)
-
-            expect(api.add_user_to_repo(username, repo_name)).to be_truthy
-            expect(add_user_request).to have_been_requested
-          end
-        end
-
-        context 'when request fails' do
-          it 'tries to add Hound user to first repo team with admin access and returns false' do
-            stub_common_requests
-            add_user_request =
-              stub_failed_add_user_to_team_request(username, team_id, token)
-
-            expect(api.add_user_to_repo(username, repo_name)).to be_falsy
-            expect(add_user_request).to have_been_requested
-          end
-        end
-
-        def stub_common_requests
-          stub_repo_with_org_request(repo_name, token)
-          stub_repo_teams_request(repo_name, token)
-          stub_user_teams_request(token)
-        end
-      end
-
-      context 'when repo is not part of a team' do
-        context 'when Services team does not exist' do
-          it 'creates a Services team and adds user to the new team' do
-            team_id = 1234 # from fixture
-            stub_repo_with_org_request(repo_name, token)
-            stub_empty_repo_teams_request(repo_name, token)
-            stub_team_creation_request(organization, repo_name, token)
-            stub_org_teams_request(organization, token)
-            add_user_request =
-              stub_add_user_to_team_request(username, team_id, token)
-
-            expect(api.add_user_to_repo(username, repo_name)).to be_truthy
-            expect(add_user_request).to have_been_requested
-          end
-        end
-
-        context "when team creation raises a validation error" do
-          it "adds user to Services team" do
-            stub_repo_with_org_request(repo_name, token)
-            stub_empty_repo_teams_request(repo_name, token)
-            stub_chained_org_teams_request(organization, token)
-            stub_failed_team_creation_request(organization, repo_name, token)
-            add_user_request =
-              stub_add_user_to_team_request(username, team_id, token)
-
-            api.add_user_to_repo(username, repo_name)
-
-            expect(add_user_request).to have_been_requested
-          end
-        end
-
-        context "when Services team exists" do
-          it "adds user to Services team" do
-            stub_repo_with_org_request(repo_name, token)
-            stub_empty_repo_teams_request(repo_name, token)
-            stub_org_teams_with_services_request(organization, token)
-            add_repo_request =
-              stub_add_repo_to_team_request(repo_name, team_id, token)
-            add_user_request =
-              stub_add_user_to_team_request(username, team_id, token)
-
-            api.add_user_to_repo(username, repo_name)
-
-            expect(add_user_request).to have_been_requested
-            expect(add_repo_request).to have_been_requested
-          end
-        end
-      end
-    end
-
-    context 'when repo is not part of an organization' do
-      it 'adds user as collaborator' do
-        stub_repo_request(repo_name, token)
-        add_user_request =
-          stub_add_user_to_repo_request(username, repo_name, token)
-
-        expect(api.add_user_to_repo(username, repo_name)).to be_truthy
-        expect(add_user_request).to have_been_requested
-      end
-    end
-  end
-
-  describe '#repos' do
-    it 'fetches all repos from Github' do
-      auth_token = 'authtoken'
-      api = GithubApi.new(auth_token)
-      stub_repo_requests(auth_token)
+      stub_repo_requests(token)
 
       repos = api.repos
 
@@ -130,24 +17,61 @@ describe GithubApi do
     end
   end
 
-  describe '#create_hook' do
-    context 'when hook does not exist' do
-      it 'creates pull request web hook' do
-        full_repo_name = 'jimtom/repo'
-        callback_endpoint = 'http://example.com'
-        request = stub_hook_creation_request(full_repo_name, callback_endpoint)
-        api = GithubApi.new(AuthenticationHelper::GITHUB_TOKEN)
+  describe "#file_contents" do
+    context "used multiple times with same arguments" do
+      it "requests file content once" do
+        client = double("Octokit::Client", contents: "filecontent")
+        allow(Octokit::Client).to receive(:new).and_return(client)
+        token = "authtoken"
+        github = GithubApi.new(token)
+        repo = "jimtom/wow"
+        filename = ".hound.yml"
+        sha = "abc123"
+
+        contents = github.file_contents(repo, filename, sha)
+        same_contents = github.file_contents(repo, filename, sha)
+
+        expect(contents).to eq "filecontent"
+        expect(same_contents).to eq contents
+        expect(Octokit::Client).to have_received(:new).with(
+          access_token: token,
+          auto_paginate: true
+        )
+        expect(client).to have_received(:contents).with(
+          repo,
+          path: filename,
+          ref: sha
+        ).once
+      end
+    end
+  end
+
+  describe "#create_hook" do
+    context "when hook does not exist" do
+      it "creates pull request web hook" do
+        callback_endpoint = "http://example.com"
+        token = "something"
+        api = GithubApi.new(token)
+        request = stub_hook_creation_request(
+          full_repo_name,
+          callback_endpoint,
+          token
+        )
 
         api.create_hook(full_repo_name, callback_endpoint)
 
         expect(request).to have_been_requested
       end
 
-      it 'yields hook' do
-        full_repo_name = 'jimtom/repo'
-        callback_endpoint = 'http://example.com'
-        request = stub_hook_creation_request(full_repo_name, callback_endpoint)
-        api = GithubApi.new(AuthenticationHelper::GITHUB_TOKEN)
+      it "yields hook" do
+        callback_endpoint = "http://example.com"
+        token = "something"
+        api = GithubApi.new(token)
+        request = stub_hook_creation_request(
+          full_repo_name,
+          callback_endpoint,
+          token
+        )
         yielded = false
 
         api.create_hook(full_repo_name, callback_endpoint) do |hook|
@@ -159,134 +83,351 @@ describe GithubApi do
       end
     end
 
-    context 'when hook already exists' do
-      it 'does not raise' do
-        full_repo_name = 'jimtom/repo'
-        callback_endpoint = 'http://example.com'
+    context "when hook already exists" do
+      it "does not raise" do
+        callback_endpoint = "http://example.com"
         stub_failed_hook_creation_request(full_repo_name, callback_endpoint)
-        api = GithubApi.new(AuthenticationHelper::GITHUB_TOKEN)
+        hound_token = ENV["HOUND_GITHUB_TOKEN"]
+        api = GithubApi.new(hound_token)
 
         expect do
           api.create_hook(full_repo_name, callback_endpoint)
         end.not_to raise_error
       end
+
+      it "returns true" do
+        callback_endpoint = "http://example.com"
+        stub_failed_hook_creation_request(full_repo_name, callback_endpoint)
+        hound_token = ENV["HOUND_GITHUB_TOKEN"]
+        api = GithubApi.new(hound_token)
+
+        expect(api.create_hook(full_repo_name, callback_endpoint)).to eq true
+      end
     end
   end
 
-  describe '#remove_hook' do
-    it 'removes pull request web hook' do
-      repo_name = 'test-user/repo'
-      hook_id = '123'
-      stub_hook_removal_request(repo_name, hook_id)
-      api = GithubApi.new('sometoken')
+  describe "#remove_hook" do
+    it "removes pull request web hook" do
+      hook_id = "123"
+      stub_hook_removal_request(full_repo_name, hook_id)
+      hound_token = ENV["HOUND_GITHUB_TOKEN"]
+      api = GithubApi.new(hound_token)
 
-      response = api.remove_hook(repo_name, hook_id)
+      response = api.remove_hook(full_repo_name, hook_id)
 
       expect(response).to be_truthy
     end
+
+    it "yields given block" do
+      hook_id = "123"
+      stub_hook_removal_request(full_repo_name, hook_id)
+      hound_token = ENV["HOUND_GITHUB_TOKEN"]
+      api = GithubApi.new(hound_token)
+      yielded = false
+
+      api.remove_hook(full_repo_name, hook_id) do
+        yielded = true
+      end
+
+      expect(yielded).to eq true
+    end
   end
 
-  describe '#pull_request_files' do
-    it 'returns changed files in a pull request' do
-      api = GithubApi.new('authtoken')
-      pull_request = double(:pull_request, full_repo_name: 'thoughtbot/hound')
-      pull_request_number = 123
-      commit_sha = 'abc123'
-      github_token = 'authtoken'
-      stub_pull_request_files_request(
-        pull_request.full_repo_name,
-        pull_request_number,
-        github_token
-      )
+  describe "#pull_request_files" do
+    it "returns changed files in a pull request" do
+      hound_token = ENV["HOUND_GITHUB_TOKEN"]
+      api = GithubApi.new(hound_token)
+      pull_request = double("PullRequest", full_repo_name: full_repo_name)
+      pr_number = 123
+      commit_sha = "abc123"
+      stub_pull_request_files_request(pull_request.full_repo_name, pr_number)
       stub_contents_request(
-        github_token,
         repo_name: pull_request.full_repo_name,
         sha: commit_sha
       )
 
-      files = api.pull_request_files(
-        pull_request.full_repo_name,
-        pull_request_number
-      )
+      files = api.pull_request_files(pull_request.full_repo_name, pr_number)
 
       expect(files.size).to eq(1)
-      expect(files.first.filename).to eq 'config/unicorn.rb'
+      expect(files.first.filename).to eq "config/unicorn.rb"
     end
   end
-end
 
-describe GithubApi, '#add_comment' do
-  it 'adds comment to GitHub' do
-    api = GithubApi.new('authtoken')
-    repo_name = 'test/repo'
-    pull_request_number = 2
-    comment = 'test comment'
-    commit_sha = 'commitsha'
-    file = 'test.rb'
-    patch_position = 123
-    commit = double(:commit, repo_name: repo_name, sha: commit_sha)
-    request = stub_comment_request(
-      repo_name,
-      pull_request_number,
-      comment,
-      commit_sha,
-      file,
-      patch_position
-    )
-
-    api.add_comment(
-      pull_request_number: pull_request_number,
-      commit: commit,
-      comment: 'test comment',
-      filename: file,
-      patch_position: patch_position
-    )
-
-    expect(request).to have_been_requested
-  end
-end
-
-describe GithubApi do
-  describe '#pull_request_comments' do
-    it 'returns comments added to pull request' do
-      github_token = 'authtoken'
-      api = GithubApi.new(github_token)
-      pull_request = double(:pull_request, full_repo_name: 'thoughtbot/hound')
-      pull_request_id = 253
-      commit_sha = 'abc253'
-      stub_pull_request_comments_request(
-        pull_request.full_repo_name,
-        pull_request_id,
-        github_token
-      )
-      stub_contents_request(
-        github_token,
-        repo_name: pull_request.full_repo_name,
-        sha: commit_sha
+  describe "#add_pull_request_comment" do
+    it "adds comment to GitHub pull request" do
+      api = GithubApi.new("authtoken")
+      pull_request_number = 2
+      comment = "test comment"
+      commit_sha = "commitsha"
+      file = "test.rb"
+      patch_position = 123
+      commit = double("Commit", repo_name: full_repo_name, sha: commit_sha)
+      request = stub_comment_request(
+        full_repo_name,
+        pull_request_number,
+        comment,
+        commit_sha,
+        file,
+        patch_position
       )
 
-      comments = api.pull_request_comments(
-        pull_request.full_repo_name,
-        pull_request_id
+      api.add_pull_request_comment(
+        pull_request_number: pull_request_number,
+        commit: commit,
+        comment: "test comment",
+        filename: file,
+        patch_position: patch_position
       )
-      expected_comment = "inline if's and while's are not violations?"
 
-      expect(comments.size).to eq(4)
-      expect(comments.first.body).to eq expected_comment
+      expect(request).to have_been_requested
+    end
+
+    describe "#pull_request_comments" do
+      it "returns comments added to pull request" do
+        hound_token = ENV["HOUND_GITHUB_TOKEN"]
+        api = GithubApi.new(hound_token)
+        pull_request = double("PullRequest", full_repo_name: full_repo_name)
+        pull_request_id = 253
+        commit_sha = "abc253"
+        expected_comment = "inline if's and while's are not violations?"
+        stub_pull_request_comments_request(
+          pull_request.full_repo_name,
+          pull_request_id
+        )
+        stub_contents_request(
+          repo_name: pull_request.full_repo_name,
+          sha: commit_sha
+        )
+
+        comments = api.pull_request_comments(
+          pull_request.full_repo_name,
+          pull_request_id
+        )
+
+        expect(comments.size).to eq(4)
+        expect(comments.first.body).to eq expected_comment
+      end
+    end
+
+    describe "#accept_pending_invitations" do
+      it "finds and accepts pending org invitations" do
+        hound_token = ENV["HOUND_GITHUB_TOKEN"]
+        api = GithubApi.new(hound_token)
+        memberships_request = stub_memberships_request
+        membership_update_request = stub_membership_update_request
+
+        api.accept_pending_invitations
+
+        expect(memberships_request).to have_been_requested
+        expect(membership_update_request).to have_been_requested
+      end
+    end
+
+    it "returns user's teams" do
+      teams = ["thoughtbot"]
+      client = double(user_teams: teams)
+      allow(Octokit::Client).to receive(:new).and_return(client)
+      hound_token = ENV["HOUND_GITHUB_TOKEN"]
+      api = GithubApi.new(hound_token)
+
+      user_teams = api.user_teams
+
+      expect(user_teams).to eq teams
     end
   end
-end
 
-describe GithubApi, '#user_teams' do
-  it "returns user's teams" do
-    token = 'abc123'
-    teams = ['thoughtbot']
-    client = double(user_teams: teams)
-    allow(Octokit::Client).to receive(:new).and_return(client)
-    api = GithubApi.new(token)
+  describe "#create_pending_status" do
+    it "makes request to GitHub for creating a pending status" do
+      hound_token = ENV["HOUND_GITHUB_TOKEN"]
+      api = GithubApi.new(hound_token)
+      request = stub_status_request(
+        "test/repo",
+        "sha",
+        "pending",
+        "description"
+      )
 
-    user_teams = api.user_teams
+      api.create_pending_status("test/repo", "sha", "description")
 
-    expect(user_teams).to eq teams
+      expect(request).to have_been_requested
+    end
+
+    describe "when setting the status returns 404" do
+      it "does not crash" do
+        sha = "abc"
+        hound_token = ENV["HOUND_GITHUB_TOKEN"]
+        api = GithubApi.new(hound_token)
+        repo_name = "test/repo"
+        stub_failed_status_creation_request(
+          full_repo_name,
+          sha,
+          "pending",
+          "description"
+        )
+
+        expect do
+          api.create_pending_status(full_repo_name, sha, "description")
+        end.not_to raise_error
+      end
+    end
+  end
+
+  describe "#create_success_status" do
+    it "makes request to GitHub for creating a success status" do
+      hound_token = ENV["HOUND_GITHUB_TOKEN"]
+      api = GithubApi.new(hound_token)
+      request = stub_status_request(
+        "test/repo",
+        "sha",
+        "success",
+        "description"
+      )
+
+      api.create_success_status("test/repo", "sha", "description")
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  describe "#add_user_to_team" do
+    it "makes a request to GitHub" do
+      token = "some_token"
+      username = "houndci"
+      team_id = 123
+      api = GithubApi.new(token)
+      request = stub_add_user_to_team_request(team_id, username, token)
+
+      api.add_user_to_team(team_id, username)
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  describe "#add_repo_to_team" do
+    it "makes a request to GitHub" do
+      token = "some_token"
+      team_id = 123
+      api = GithubApi.new(token)
+      request = stub_add_repo_to_team_request(full_repo_name, team_id, token)
+
+      api.add_repo_to_team(team_id, full_repo_name)
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  describe "#create_team" do
+    it "makes a request to GitHub" do
+      token = "some_token"
+      org_name = "foo"
+      team_name = "TestTeam"
+      api = GithubApi.new(token)
+      request = stub_create_team_request(
+        org_name,
+        team_name,
+        full_repo_name,
+        token,
+      )
+
+      api.create_team(
+        org_name: org_name,
+        team_name: team_name,
+        repo_name: full_repo_name
+      )
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  describe "#add_collaborator" do
+    it "makes a request to GitHub" do
+      username = "houndci"
+      api = GithubApi.new(token)
+      request = stub_add_collaborator_request(username, full_repo_name, token)
+
+      api.add_collaborator(full_repo_name, username)
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  describe "#update_team" do
+    it "makes a request" do
+      team_id = 123
+      hound_token = ENV["HOUND_GITHUB_TOKEN"]
+      api = GithubApi.new(hound_token)
+      request = stub_update_team_permission_request(team_id)
+
+      api.update_team(team_id, permissions: "push")
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  describe "#remove_collaborator" do
+    it "makes a request to GitHub" do
+      username = "houndci"
+      api = GithubApi.new(token)
+      request = stub_remove_collaborator_request(
+        username,
+        full_repo_name,
+        token,
+      )
+
+      api.remove_collaborator(full_repo_name, username)
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  describe "#team_repos" do
+    it "makes a request to get repos in a team" do
+      team_id = 222
+      api = GithubApi.new(token)
+      request = stub_team_repos_request(
+        team_id, token
+      )
+
+      api.team_repos(team_id)
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  describe "#remove_repo_from_team" do
+    it "makes a request to remove repo from team" do
+      team_id = 222
+      api = GithubApi.new(token)
+      request = stub_remove_repo_from_team_request(
+        team_id, full_repo_name, token
+      )
+
+      api.remove_repo_from_team(team_id, full_repo_name)
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  describe "#remove_user_from_team" do
+    it "makes a request to remove a user from a team" do
+      username = "houndci"
+      team_id = 222
+      api = GithubApi.new(token)
+      request = stub_remove_user_from_team_request(
+        team_id, username, token
+      )
+
+      api.remove_user_from_team(team_id, username)
+
+      expect(request).to have_been_requested
+    end
+  end
+
+  def token
+    "github_token"
+  end
+
+  def full_repo_name
+    "foo/bar"
   end
 end

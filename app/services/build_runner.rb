@@ -1,11 +1,21 @@
 class BuildRunner
-  vattr_initialize :payload
+  MAX_COMMENTS = ENV.fetch("MAX_COMMENTS").to_i
+
+  pattr_initialize :payload
 
   def run
     if repo && relevant_pull_request?
-      repo.builds.create!(violations: violations)
-      commenter.comment_on_violations(violations)
-      track_reviewed_repo_for_each_user
+      track_subscribed_build_started
+      create_pending_status
+      repo.builds.create!(
+        violations: violations,
+        pull_request_number: payload.pull_request_number,
+        commit_sha: payload.head_sha,
+      )
+      commenter.comment_on_violations(priority_violations)
+      create_success_status
+      upsert_owner
+      track_subscribed_build_completed
     end
   end
 
@@ -19,6 +29,10 @@ class BuildRunner
     @violations ||= style_checker.violations
   end
 
+  def priority_violations
+    violations.take(MAX_COMMENTS)
+  end
+
   def style_checker
     StyleChecker.new(pull_request)
   end
@@ -28,17 +42,55 @@ class BuildRunner
   end
 
   def pull_request
-    @pull_request ||= PullRequest.new(payload, ENV['HOUND_GITHUB_TOKEN'])
+    @pull_request ||= PullRequest.new(payload)
   end
 
   def repo
-    @repo ||= Repo.active.where(github_id: payload.github_repo_id).first
+    @repo ||= Repo.active.
+      find_and_update(payload.github_repo_id, payload.full_repo_name)
   end
 
-  def track_reviewed_repo_for_each_user
-    repo.users.each do |user|
+  def track_subscribed_build_started
+    if repo.subscription
+      user = repo.subscription.user
       analytics = Analytics.new(user)
-      analytics.track_reviewed(repo)
+      analytics.track_build_started(repo)
     end
+  end
+
+  def track_subscribed_build_completed
+    if repo.subscription
+      user = repo.subscription.user
+      analytics = Analytics.new(user)
+      analytics.track_build_completed(repo)
+    end
+  end
+
+  def create_pending_status
+    github.create_pending_status(
+      payload.full_repo_name,
+      payload.head_sha,
+      "Hound is reviewing changes."
+    )
+  end
+
+  def create_success_status
+    github.create_success_status(
+      payload.full_repo_name,
+      payload.head_sha,
+      "Hound has reviewed the changes."
+    )
+  end
+
+  def upsert_owner
+    Owner.upsert(
+      github_id: payload.repository_owner_id,
+      name: payload.repository_owner_name,
+      organization: payload.repository_owner_is_organization?
+    )
+  end
+
+  def github
+    @github ||= GithubApi.new(ENV["HOUND_GITHUB_TOKEN"])
   end
 end

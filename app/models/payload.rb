@@ -1,5 +1,3 @@
-require 'json'
-
 class Payload
   pattr_initialize :unparsed_data
 
@@ -12,14 +10,14 @@ class Payload
   end
 
   def github_repo_id
-    data['repository']['id']
+    repository["id"]
   end
 
   def full_repo_name
-    data['repository']['full_name']
+    repository["full_name"]
   end
 
-  def number
+  def pull_request_number
     data['number']
   end
 
@@ -32,7 +30,45 @@ class Payload
   end
 
   def ping?
-    data['zen']
+    data["zen"]
+  end
+
+  def pull_request?
+    pull_request.present?
+  end
+
+  def repository_owner_id
+    repository["owner"]["id"]
+  end
+
+  def repository_owner_name
+    repository["owner"]["login"]
+  end
+
+  def repository_owner_is_organization?
+    repository["owner"]["type"] == GithubApi::ORGANIZATION_TYPE
+  end
+
+  def build_data
+    {
+      "number" => pull_request_number,
+      "action" => action,
+      "pull_request" => {
+        "changed_files" => changed_files,
+        "head" => {
+          "sha" => head_sha,
+        }
+      },
+      "repository" => {
+        "id" => github_repo_id,
+        "full_name" => full_repo_name,
+        "owner" => {
+          "id" => repository_owner_name,
+          "login" => repository_owner_id,
+          "type" => repository["owner"]["type"],
+        }
+      }
+    }
   end
 
   private
@@ -47,5 +83,9 @@ class Payload
 
   def pull_request
     data.fetch("pull_request", {})
+  end
+
+  def repository
+    @repository ||= data["repository"]
   end
 end

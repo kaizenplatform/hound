@@ -1,12 +1,4 @@
-ENV["HOST"] = "test.host"
-ENV["SECRET_KEY_BASE"] = "test-key"
-ENV["HOUND_GITHUB_USERNAME"] = "houndci"
-ENV["HOUND_GITHUB_TOKEN"] = "houndgithubtoken"
-ENV["ENABLE_HTTPS"] = "no"
-ENV["CHANGED_FILES_THRESHOLD"] = "300"
-ENV["REDISTOGO_URL"] = "http://localhost:6379"
-ENV["STRIPE_API_KEY"] = "sk_test_123"
-ENV["STRIPE_PUBLISHABLE_KEY"] = "pk_test_123"
+ENV["SECRET_KEY_BASE"] = "supersecret"
 
 Houndapp::Application.configure do
   # Settings specified here will take precedence over those in config/application.rb
@@ -19,7 +11,7 @@ Houndapp::Application.configure do
   config.cache_classes = true
 
   # Configure static asset server for tests with Cache-Control for performance
-  config.serve_static_assets = true
+  config.serve_static_files = true
   config.static_cache_control = "public, max-age=3600"
 
   # Show full error reports and disable caching
@@ -27,7 +19,7 @@ Houndapp::Application.configure do
   config.action_controller.perform_caching = false
 
   # Raise exceptions instead of rendering exception templates
-  config.action_dispatch.show_exceptions = true
+  config.action_dispatch.show_exceptions = false
 
   # Disable request forgery protection in test environment
   config.action_controller.allow_forgery_protection    = false

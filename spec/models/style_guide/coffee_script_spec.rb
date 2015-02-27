@@ -1,19 +1,32 @@
-require "active_support/core_ext/string/strip"
-require "active_support/inflector"
-require "attr_extras"
-require "coffeelint"
-require "fast_spec_helper"
-
-require "app/models/style_guide/base"
-require "app/models/style_guide/coffee_script"
-require "app/models/violation"
+require "spec_helper"
 
 describe StyleGuide::CoffeeScript do
+  include ConfigurationHelper
+
   describe "#violations_in_file" do
     context "with default configuration" do
       context "for long line" do
         it "returns violation" do
-          expect(violations_in("1" * 81).first).to match(/exceeds maximum/)
+          repo_config = double("RepoConfig", enabled_for?: true, for: {})
+          style_guide = StyleGuide::CoffeeScript.new(repo_config, "Ralph")
+          line = double("Line", content: "blah", number: 1, patch_position: 2)
+          file = double(
+            :file,
+            content: "1" * 81,
+            filename: "test.coffee",
+            line_at: line
+          )
+
+          violations = style_guide.violations_in_file(file)
+          violation = violations.first
+
+          expect(violations.size).to eq 1
+          expect(violation.filename).to eq "test.coffee"
+          expect(violation.patch_position).to eq line.patch_position
+          expect(violation.line_number).to eq 1
+          expect(violation.messages).to match_array(
+            ["Line exceeds maximum allowed length"]
+          )
         end
       end
 
@@ -52,26 +65,73 @@ describe StyleGuide::CoffeeScript do
           filename: "lib/test.coffee",
           line_at: nil,
         )
-        repo_config = double("RepoConfig", enabled_for?: true, for: {})
-        style_guide = StyleGuide::CoffeeScript.new(repo_config)
 
-        violations = style_guide.violations_in_file(file)
+        violations = violations_in(file)
 
         expect(violations.count).to eq 0
       end
     end
 
+    context "thoughtbot pull request" do
+      it "uses the default thoughtbot configuration" do
+        spy_on_coffee_lint
+        spy_on_file_read
+        config_file = thoughtbot_configuration_file(StyleGuide::CoffeeScript)
+
+        violations_in("var foo = 'bar'", repository_owner_name: "thoughtbot")
+
+        expect(File).to have_received(:read).
+          with(config_file)
+        expect(Coffeelint).to have_received(:lint).
+          with(anything, thoughtbot_configuration)
+      end
+    end
+
+    context "non-thoughtbot pull request" do
+      it "uses the default hound configuration" do
+        spy_on_coffee_lint
+        spy_on_file_read
+        config_file = default_configuration_file(StyleGuide::CoffeeScript)
+
+        violations_in("var foo = 'bar'", repository_owner_name: "foo")
+
+        expect(File).to have_received(:read).
+          with(config_file)
+        expect(Coffeelint).to have_received(:lint).
+          with(anything, default_configuration)
+      end
+    end
+
     private
 
-    def violations_in(content)
+    def violations_in(content, repository_owner_name: "ralph")
       repo_config = double("RepoConfig", enabled_for?: true, for: {})
-      style_guide = StyleGuide::CoffeeScript.new(repo_config)
+      style_guide = StyleGuide::CoffeeScript.new(
+        repo_config,
+        repository_owner_name
+      )
       style_guide.violations_in_file(build_file(content)).flat_map(&:messages)
     end
 
     def build_file(content)
       line = double("Line", content: "blah", number: 1, patch_position: 2)
       double(:file, content: content, filename: "test.coffee", line_at: line)
+    end
+
+    def default_configuration
+      config_file = default_configuration_file(StyleGuide::CoffeeScript)
+      config = File.read(config_file)
+      JSON.parse(config)
+    end
+
+    def thoughtbot_configuration
+      config_file = thoughtbot_configuration_file(StyleGuide::CoffeeScript)
+      config = File.read(config_file)
+      JSON.parse(config)
+    end
+
+    def spy_on_coffee_lint
+      allow(Coffeelint).to receive(:lint).and_return([])
     end
   end
 end
